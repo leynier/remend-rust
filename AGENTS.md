@@ -1,100 +1,89 @@
 # AGENTS.md
 
-Guidelines for AI agents working on this repository.
+Guidelines for agents working on this repository.
 
-## Project Overview
+## Project overview
 
-`remend` is a **Dart port** of the [`remend`](https://www.npmjs.com/package/remend) npm package (v1.2.2) by the [Streamdown](https://github.com/vercel/streamdown) team at Vercel.
+`remend` is a pure Rust port of the [`remend`](https://www.npmjs.com/package/remend) npm package. It completes incomplete Markdown syntax during streaming output, for example `**bold text` becomes `**bold text**`.
 
-It is a lightweight, zero-dependency library that completes incomplete Markdown syntax during streaming AI output — e.g. `**bold text` → `**bold text**`. The source of truth for all behavior is the original TypeScript implementation, which lives in the `streamdown/` git submodule at `streamdown/packages/remend/src/`.
+The `streamdown/` git submodule contains the upstream TypeScript source and is the behavioral source of truth. The current port tracks upstream package version `1.3.0`.
 
----
+## Upstream parity rule
 
-## ⚠️ 1:1 Parity Rule — Read This First
+Keep the Rust implementation behaviorally 1:1 with `streamdown/packages/remend/src/` and its tests. Do not add handlers, change priorities, rename options, or alter completion behavior unless the upstream implementation changes first.
 
-This is the single most important constraint in the repo.
+The source layout intentionally follows upstream filenames and responsibility:
 
-Every file in `lib/src/` is a direct 1:1 translation of a file in `streamdown/packages/remend/src/` — same count, same names (with `_` instead of `-`). Every test file in `test/` mirrors a file in `streamdown/packages/remend/__tests__/` in the same way.
-
-### What must match exactly
-
-- All logic and algorithms
-- All comments (translated to `///` Dart style)
-- Handler names, option names, and priorities
-- Test structure and test cases
-
-### Dart-only differences allowed
-
-- `snake_case` filenames instead of `kebab-case`
-- `///` doc comments instead of JSDoc `/** */`
-- `enum LinkMode` instead of a TypeScript string union type
-- Named constructor parameters instead of object literals
-- `RegExp` with Dart flags instead of JS regex literals
-
-### What you must NOT do
-
-- Add new handlers, change handler priorities, or rename options without a corresponding change in the upstream TypeScript first
-- Add abstraction layers, helpers, or utilities that have no counterpart in the TypeScript source
-- Change the behavior of any handler unless the upstream TypeScript changed first
-
----
-
-## Upstream Sync Strategy
-
-When the `streamdown` submodule receives a new version of the npm package:
-
-1. Note the current submodule commit (the old version reference)
-2. Update the submodule: `git submodule update --remote streamdown`
-3. Diff each changed TypeScript file against its previous version: `git diff <old-commit> HEAD -- streamdown/packages/remend/src/`
-4. For each changed `.ts` file, apply the equivalent change to the corresponding `.dart` file — preserving full 1:1 parity including comments, tests, and any README changes
-5. If the npm `package.json` version changed → update `version` in `pubspec.yaml` to match exactly
-6. Add a new entry to `CHANGELOG.md` describing what changed
-7. If the upstream `README.md` changed meaningfully → apply equivalent changes to the Dart `README.md`, keeping the port notice and Dart-specific adaptations
-
----
-
-## Repository Structure
-
+```text
+streamdown/packages/remend/src/     src/
+code-block-utils.ts              -> code-block-utils.rs
+comparison-operator-handler.ts   -> comparison-operator-handler.rs
+emphasis-handlers.ts             -> emphasis-handlers.rs
+html-tag-handler.ts              -> html-tag-handler.rs
+index.ts                         -> index.rs
+inline-code-handler.ts           -> inline-code-handler.rs
+katex-handler.ts                -> katex-handler.rs
+link-image-handler.ts           -> link-image-handler.rs
+patterns.ts                     -> patterns.rs
+setext-heading-handler.ts       -> setext-heading-handler.rs
+single-tilde-handler.ts         -> single-tilde-handler.rs
+strikethrough-handler.ts        -> strikethrough-handler.rs
+utils.ts                        -> utils.rs
 ```
-lib/
-  remend.dart       # Barrel file — public exports
-  src/              # 1:1 with streamdown/packages/remend/src/ (snake_case filenames)
-test/               # 1:1 with streamdown/packages/remend/__tests__/ (snake_case filenames)
-streamdown/         # Git submodule — original TypeScript implementation (source of truth)
-.github/workflows/
-  ci.yaml           # CI: format + analyze + test on every push/PR to main
-```
+
+`lib.rs` is the unavoidable Rust crate entrypoint and only wires those modules with `#[path]`. Integration tests use the corresponding upstream stems under `tests/` (`bold.rs`, `links.rs`, `underscore-bug.rs`, etc.). Keep new upstream files in the same location and use the same kebab-case filename.
+
+Rust-specific adaptations are limited to ownership and UTF-8-safe string handling, `Option`/`Result` where required, traits for custom handlers, and `LinkMode` as an enum. Public utility positions are UTF-8 byte offsets and must be valid `str` boundaries.
 
 ## Public API
 
-Exported from `lib/remend.dart`:
+Exported from `remend`:
 
-- `remend(String text, [RemendOptions options])` — main function
-- `RemendHandler` — class for custom handlers (`name`, `handle`, `priority`)
-- `RemendOptions` — configuration class (all options default `true` except `inlineKatex`)
-- `LinkMode` — enum: `protocol` (default) or `textOnly`
-- `isWithinCodeBlock`, `isWithinMathBlock`, `isWithinLinkOrImageUrl`, `isWordChar` — context utilities for custom handlers
-- `countTripleAsterisks` (and other `count*` / `handleIncomplete*` functions from `emphasis_handlers.dart`) — exported for testing
+- `remend(&str) -> String`
+- `remend_with_options(&str, &RemendOptions) -> String`
+- `RemendHandler` and `FnRemendHandler`
+- `RemendOptions`
+- `LinkMode::{Protocol, TextOnly}`
+- context utilities from `utils.rs`
+- public emphasis counters and incomplete-emphasis handlers used by tests and custom integrations
 
----
+Options default to enabled, except `inline_katex`, which is opt-in. Built-in priorities must remain: single tilde `0`, comparison operators `5`, HTML `10`, setext headings `15`, links `20`, bold-italic `30`, bold `35`, italic `40–42`, inline code `50`, strikethrough `60`, block KaTeX `70`, and inline KaTeX `75`. Custom handlers default to priority `100`.
 
-## Development Commands
+## Upstream sync workflow
 
-Before every commit, run the full check:
+When the submodule advances:
+
+1. Record the old submodule commit.
+2. Run `git submodule update --remote streamdown`.
+3. Compare changed files with `git diff <old-commit> HEAD -- streamdown/packages/remend/src/ streamdown/packages/remend/__tests__/`.
+4. Port each changed TypeScript/test file to the matching Rust file, keeping comments, test cases, handler names, option names, and priorities aligned.
+5. If `packages/remend/package.json` changes version, update `version` in `Cargo.toml` exactly.
+6. Update `CHANGELOG.md` and any meaningful upstream documentation changes.
+7. Run the complete Rust validation below.
+
+Do not delete or replace the submodule; it is required for conformance review.
+
+## Development commands
+
+Run before every commit:
 
 ```bash
-dart format . && dart analyze --fatal-infos && dart test
+cargo fmt --all
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets
+cargo doc --no-deps
+cargo package --list
+cargo publish --dry-run
+git diff --check
 ```
 
-All three steps must pass. The GitHub Actions CI enforces the same checks on every push and PR to `main`.
+The GitHub Actions CI runs formatting, Clippy, tests, documentation, and code coverage on pushes and pull requests to `main`. It uploads the LCOV coverage report as the `coverage-lcov` artifact without enforcing a threshold yet. The release workflow additionally checks the package and publishes version tags through crates.io Trusted Publishing.
 
----
+## Commit style
 
-## Commit Style
+Use lowercase conventional commits and do not add AI coauthor lines:
 
-Use lowercase conventional commits. No AI coauthor lines.
-
-```
+```text
 feat:     new feature
 fix:      bug fix
 docs:     documentation only

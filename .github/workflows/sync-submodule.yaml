@@ -108,7 +108,7 @@ jobs:
 
           \`${OLD_VERSION}\` → \`${NEW_VERSION}\`
 
-          Update \`version\` in \`pubspec.yaml\` to match."
+          Update \`version\` in \`Cargo.toml\` to match."
             fi
           fi
 
@@ -117,7 +117,7 @@ jobs:
             echo "## Upstream remend package has changes"
             echo ""
             echo "The \`streamdown\` submodule has new commits that include changes to \`packages/remend/\`."
-            echo "These changes require a manual update to maintain 1:1 parity with the Dart port."
+            echo "These changes require a manual update to maintain 1:1 parity with the Rust port."
             echo ""
             echo "**Submodule commits:** [\`${OLD_SHORT}\`](https://github.com/vercel/streamdown/commit/${OLD}) → [\`${NEW_SHORT}\`](https://github.com/vercel/streamdown/commit/${NEW})"
             echo "**Compare:** https://github.com/vercel/streamdown/compare/${OLD}...${NEW}"
@@ -164,12 +164,12 @@ jobs:
             echo "Follow the [upstream sync strategy](https://github.com/leynier/remend/blob/main/AGENTS.md#upstream-sync-strategy):"
             echo ""
             echo "- [ ] Update submodule: \`git submodule update --remote streamdown\`"
-            echo "- [ ] Apply equivalent changes to each modified \`.dart\` file in \`lib/src/\`"
-            echo "- [ ] Apply equivalent changes to each modified test file in \`test/\`"
-            echo "- [ ] If version changed: update \`version\` in \`pubspec.yaml\`"
+            echo "- [ ] Apply equivalent changes to each modified Rust file in \`src/\` (same upstream filename)"
+            echo "- [ ] Apply equivalent changes to each modified test file in \`tests/\` (same upstream stem)"
+            echo "- [ ] If version changed: update \`version\` in \`Cargo.toml\`"
             echo "- [ ] Update \`CHANGELOG.md\` with a new entry"
-            echo "- [ ] If README changed upstream: update Dart \`README.md\`"
-            echo "- [ ] Run \`dart format . && dart analyze --fatal-infos && dart test\`"
+            echo "- [ ] If README changed upstream: update Rust \`README.md\`"
+            echo "- [ ] Run \`cargo fmt --all && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-targets\`"
             echo "- [ ] Commit with submodule pointer update included"
           } > /tmp/issue_body.md
 

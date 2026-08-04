@@ -1,0 +1,25 @@
+[package]
+name = "remend"
+version = "1.3.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Self-healing Markdown that completes incomplete syntax during streaming."
+repository = "https://github.com/leynier/remend-rust"
+homepage = "https://streamdown.ai/docs/termination"
+readme = "README.md"
+license = "MIT"
+keywords = ["markdown", "streaming", "llm"]
+categories = ["text-processing"]
+exclude = [
+    "streamdown/**",
+    "target/**",
+    "tests/**",
+    ".github/**",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "pubspec.lock",
+]
+
+[package.metadata.docs.rs]
+all-features = true

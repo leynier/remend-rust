@@ -1,215 +1,112 @@
-# Remend (Dart)
+# Remend
 
-Self-healing markdown. Intelligently parses and styles incomplete Markdown blocks.
+[![crates.io](https://img.shields.io/crates/v/remend.svg)](https://crates.io/crates/remend)
+[![docs.rs](https://docs.rs/remend/badge.svg)](https://docs.rs/remend)
 
-[![pub version](https://img.shields.io/pub/v/remend)](https://pub.dev/packages/remend)
-[![npm version](https://img.shields.io/npm/v/remend)](https://www.npmjs.com/package/remend)
+Remend completes incomplete Markdown syntax while text is being streamed. It is a small, dependency-free Rust crate for AI and other incremental Markdown pipelines.
 
-> **This is a Dart port of the [`remend`](https://www.npmjs.com/package/remend) npm package.**
-> The original TypeScript implementation is part of the [Streamdown](https://github.com/vercel/streamdown) project by Vercel.
-> This port maintains 1:1 parity with the original — same logic, same behavior, same handler pipeline — adapted to Dart conventions.
-
-## Overview
-
-Remend is a lightweight utility that handles incomplete Markdown syntax during streaming. When AI models stream Markdown token-by-token, you often get partial formatting markers like unclosed `**bold**` or incomplete `[links](`. Remend automatically completes these unterminated blocks so they render correctly in real-time.
-
-Remend powers the markdown termination logic in [Streamdown](https://streamdown.ai) and can be used standalone in any streaming Markdown application.
+Remend is a Rust port of the [`remend`](https://www.npmjs.com/package/remend) package maintained by the [Streamdown](https://github.com/vercel/streamdown) team. The `streamdown/` submodule is the behavioral source of truth; this repository keeps the same handler order, option names, priorities, and test coverage while using Rust's ownership, traits, and UTF-8-safe string APIs.
 
 ## Features
 
-- **Streaming-optimized** - Handles incomplete Markdown gracefully
-- **Smart completion** - Auto-closes bold, italic, code, links, images, strikethrough, and math blocks
-- **Performance-first** - Optimized string operations, no regex allocations
-- **Context-aware** - Respects code blocks, math blocks, and nested formatting
-- **Edge case handling** - List markers, word-internal characters, escaped sequences
-- **Zero dependencies** - Pure Dart implementation
-
-## Supported Syntax
-
-Remend intelligently completes the following incomplete Markdown patterns:
-
-- **Bold**: `**text` → `**text**`
-- **Italic**: `*text` or `_text` → `*text*` or `_text_`
-- **Bold + Italic**: `***text` → `***text***`
-- **Inline code**: `` `code `` → `` `code` ``
-- **Strikethrough**: `~~text` → `~~text~~`
-- **Links**: `[text](url` → `[text](streamdown:incomplete-link)`
-- **Images**: `![alt](url` → removed (can't display partial images)
-- **Block math**: `$$formula` → `$$formula$$`
-- **Inline math**: `$formula` → `$formula$` (opt-in, see `inlineKatex`)
-- **Single tilde escape**: `20~25` → `20\~25` (prevents false strikethrough)
+- Completes bold, italic, bold-italic, inline code, strikethrough, links, images, setext headings, and KaTeX delimiters.
+- Escapes single tildes and comparison operators when Markdown would otherwise misinterpret them.
+- Preserves code, math, HTML, nested-bracket, list, and streaming context.
+- Supports custom handlers through a trait or the `FnRemendHandler` closure adapter.
+- Uses no runtime dependencies.
 
 ## Installation
 
-```yaml
-dependencies:
-  remend: ^1.2.2
+```toml
+[dependencies]
+remend = "1.3"
 ```
 
 ## Usage
 
-```dart
-import 'package:remend/remend.dart';
+```rust
+use remend::{remend, remend_with_options, LinkMode, RemendOptions};
 
-// During streaming
-const partialMarkdown = 'This is **bold text';
-final completed = remend(partialMarkdown);
-// Result: 'This is **bold text**'
+let completed = remend("This is **bold text");
+assert_eq!(completed, "This is **bold text**");
 
-// With incomplete link
-const partialLink = 'Check out [this link](https://exampl';
-final completedLink = remend(partialLink);
-// Result: 'Check out [this link](streamdown:incomplete-link)'
+let options = RemendOptions {
+    link_mode: LinkMode::TextOnly,
+    ..Default::default()
+};
+let completed_link = remend_with_options("Read [the docs](https://example", &options);
+assert_eq!(completed_link, "Read the docs");
 ```
 
-### Configuration
+The input is plain `&str` and the result is an owned `String`, making the function suitable for each streaming update.
 
-You can selectively disable specific completions by passing a `RemendOptions` object. Options default to `true` unless noted otherwise:
+## Options and custom handlers
 
-```dart
-import 'package:remend/remend.dart';
+All completion options default to `true`, except `inline_katex`, which is opt-in because a single `$` may be currency. `LinkMode::Protocol` is the default and emits `streamdown:incomplete-link`; `LinkMode::TextOnly` removes the incomplete link markup.
 
-// Disable link and KaTeX completion
-final completed = remend(partialMarkdown, RemendOptions(
-  links: false,
-  katex: false,
-));
-```
+```rust
+use remend::{remend_with_options, FnRemendHandler, RemendOptions};
 
-Available options:
-
-| Option | Description |
-|--------|-------------|
-| `links` | Complete incomplete links |
-| `images` | Complete incomplete images |
-| `bold` | Complete bold formatting (`**`) |
-| `italic` | Complete italic formatting (`*` and `_`) |
-| `boldItalic` | Complete bold-italic formatting (`***`) |
-| `inlineCode` | Complete inline code formatting (`` ` ``) |
-| `singleTilde` | Escape single `~` between word characters to prevent false strikethrough (e.g. `20~25`) |
-| `strikethrough` | Complete strikethrough formatting (`~~`) |
-| `katex` | Complete block KaTeX math (`$$`) |
-| `inlineKatex` | Complete inline KaTeX math (`$`) — defaults to `false` to avoid ambiguity with currency symbols |
-| `setextHeadings` | Handle incomplete setext headings |
-| `handlers` | Custom handlers to extend remend |
-
-### Custom Handlers
-
-You can extend remend with custom handlers to complete your own markers during streaming. This is useful for custom syntax like `<<<JOKE>>>` blocks or other domain-specific patterns.
-
-```dart
-import 'package:remend/remend.dart';
-
-final jokeHandler = RemendHandler(
-  name: 'joke',
-  handle: (text) {
-    // Complete <<<JOKE>>> marks that aren't closed
-    final match = RegExp(r'<<<JOKE>>>([^<]*)$').firstMatch(text);
-    if (match != null && !text.endsWith('<<</JOKE>>>')) {
-      return '$text<<</JOKE>>>';
+let joke = FnRemendHandler::with_priority("joke", 80, |text: &str| {
+    if text.contains("<<<JOKE>>>") && !text.ends_with("<<</JOKE>>>") {
+        format!("{text}<<</JOKE>>>")
+    } else {
+        text.to_owned()
     }
-    return text;
-  },
-  priority: 80, // Runs after most built-ins (0-70)
-);
+});
 
-final result = remend(content, RemendOptions(handlers: [jokeHandler]));
+let options = RemendOptions::default().with_handler(joke);
+let completed = remend_with_options("<<<JOKE>>>hello", &options);
+assert_eq!(completed, "<<<JOKE>>>hello<<</JOKE>>>");
 ```
 
-#### Handler Class
+Implement `RemendHandler` directly when a named type is more appropriate. Its `priority()` defaults to `100`; lower priorities run first. Built-in priorities are kept aligned with upstream: single tilde `0`, comparison operators `5`, HTML `10`, setext headings `15`, links `20`, bold-italic `30`, bold `35`, italic `40..42`, inline code `50`, strikethrough `60`, block KaTeX `70`, and inline KaTeX `75`.
 
-```dart
-class RemendHandler {
-  final String name;                    // Unique identifier
-  final String Function(String) handle; // Transform function
-  final int priority;                   // Lower runs first (default: 100)
-}
+The exported context helpers use UTF-8 byte offsets, matching Rust indexing conventions. Callers must pass a valid `str` boundary.
+
+## Upstream-aligned layout
+
+Each upstream TypeScript source file has a corresponding Rust file with the same kebab-case name under `src/`:
+
+```text
+streamdown/packages/remend/src/     src/
+code-block-utils.ts              -> code-block-utils.rs
+comparison-operator-handler.ts   -> comparison-operator-handler.rs
+emphasis-handlers.ts             -> emphasis-handlers.rs
+...
+index.ts                         -> index.rs
 ```
 
-#### Built-in Priorities
+`lib.rs` is only the Rust crate entrypoint and declares those files with `#[path]`. Integration tests use the same upstream stems (`bold.rs`, `links.rs`, `streaming.rs`, and so on). This makes an upstream diff easy to locate and port without introducing a second implementation structure.
 
-Built-in handlers use priorities 0-75. Custom handlers default to 100 (run after built-ins):
+## Development
 
-| Handler | Priority |
-|---------|----------|
-| `singleTilde` | 0 |
-| `comparisonOperators` | 5 |
-| `htmlTags` | 10 |
-| `setextHeadings` | 15 |
-| `links` | 20 |
-| `boldItalic` | 30 |
-| `bold` | 35 |
-| `italic` | 40-42 |
-| `inlineCode` | 50 |
-| `strikethrough` | 60 |
-| `katex` | 70 |
-| `inlineKatex` | 75 |
-| Custom (default) | 100 |
-
-#### Exported Utilities
-
-Remend exports utility functions for context detection in custom handlers:
-
-```dart
-import 'package:remend/remend.dart';
-
-final handler = RemendHandler(
-  name: 'custom',
-  handle: (text) {
-    // Skip if we're inside a code block
-    if (isWithinCodeBlock(text, text.length - 1)) {
-      return text;
-    }
-    // Your logic here
-    return text;
-  },
-);
+```bash
+cargo fmt --all
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets
+cargo doc --no-deps
 ```
 
-Available utilities: `isWithinCodeBlock`, `isWithinMathBlock`, `isWithinLinkOrImageUrl`, `isWordChar`.
+Before releasing, also run `cargo package --list` and `cargo publish --dry-run`. The `streamdown` submodule remains checked in as the conformance reference. When it changes, compare the old and new submodule commits, port each changed source/test file with the same filename, update the crate version from `packages/remend/package.json`, and add a changelog entry.
 
-### Usage with a Markdown Parser
+## Code coverage
 
-Remend is a preprocessor that must be run on the raw Markdown string **before** passing it into any Markdown processing pipeline:
+Install `cargo-llvm-cov` with the stable toolchain and generate an LCOV report locally:
 
-```dart
-import 'package:remend/remend.dart';
-
-const streamedMarkdown = 'This is **incomplete bold';
-
-// Run Remend first to complete incomplete syntax
-final completedMarkdown = remend(streamedMarkdown);
-
-// Then pass to your Markdown parser of choice
-// final html = myMarkdownParser.parse(completedMarkdown);
+```bash
+cargo +stable install cargo-llvm-cov --locked
+rustup component add llvm-tools-preview --toolchain stable
+mkdir -p target/llvm-cov
+cargo +stable llvm-cov --all-features --workspace --lcov --output-path target/llvm-cov/lcov.info
 ```
 
-This is important because Remend operates on the raw string level, while Markdown parsers work with abstract syntax trees (ASTs). Running Remend after parsing would be ineffective.
+The CI runs the same coverage command and uploads `target/llvm-cov/lcov.info` as the `coverage-lcov` artifact. Coverage is reported but does not enforce a percentage threshold yet.
 
-## How It Works
+## Publishing
 
-Remend analyzes the input text and:
+The release workflow publishes tags matching `vX.Y.Z` after running the same format, lint, test, documentation, and package checks. It uses crates.io Trusted Publishing through GitHub Actions OIDC; configure the repository and workflow as a trusted publisher in the crates.io package settings before the first automated release. The first package publication must be bootstrapped manually because crates.io cannot configure a trusted publisher for a package that does not exist yet.
 
-1. Detects incomplete formatting markers at the end of the text
-2. Counts opening vs closing markers (considering escaped characters)
-3. Intelligently adds closing markers when needed
-4. Respects context like code blocks, math blocks, and list items
-5. Handles edge cases like nested brackets and word-internal characters
+## License and attribution
 
-The parser is designed to be defensive and only completes formatting when it's unambiguous that the block is incomplete.
-
-## Performance
-
-Remend is built for high-performance streaming scenarios:
-
-- Direct string iteration instead of regex splits
-- ASCII fast-path for common characters
-- Minimal memory allocations
-- Early returns for common cases
-
-## Credits
-
-This package is a Dart port of [`remend`](https://www.npmjs.com/package/remend), the original TypeScript package developed by the [Streamdown](https://github.com/vercel/streamdown) team at Vercel.
-All credit for the algorithm, design, and behavior goes to the original authors.
-
-For more info on the original package, see the [Streamdown documentation](https://streamdown.ai/docs/termination).
+The Rust adaptation is distributed under the repository's MIT license. The upstream implementation and its Apache-2.0 attribution are recorded in [`NOTICE`](NOTICE).
